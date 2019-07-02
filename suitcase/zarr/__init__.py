@@ -4,13 +4,26 @@
 # but may also accpet additional required or optional keyword arguments, as
 # needed.
 import event_model
+import itertools
 from pathlib import Path
 import suitcase.utils
 from ._version import get_versions
+from intake_bluesky.in_memory import BlueskyInMemoryCatalog
 
 __version__ = get_versions()['version']
 del get_versions
 
+def documents_to_xarrays(documents):
+    "Consume a generator instance of (name, doc) pairs. Return dict of xarray.Datasets."
+
+    def gen():
+        # single-use generator function wrapping a generator instance
+        yield from documents
+
+    cat = BlueskyInMemoryCatalog()
+    cat.upsert(gen, (), {})
+    xarrays = {stream_name: cat[stream_name].read() for stream_name in cat}
+    return xarrays
 
 def export(gen, directory, file_prefix='{uid}-', **kwargs):
     """
@@ -125,6 +138,7 @@ class Serializer(event_model.DocumentRouter):
     """
     def __init__(self, directory, file_prefix='{uid}-', **kwargs):
 
+        sefl._documents = None
         self._file_prefix = file_prefix
         self._kwargs = kwargs
         self._templated_file_prefix = ''  # set when we get a 'start' document
@@ -211,17 +225,31 @@ class Serializer(event_model.DocumentRouter):
         # As in, '{uid}' -> 'c1790369-e4b2-46c7-a294-7abfa239691a'
         # or 'my-data-from-{plan-name}' -> 'my-data-from-scan'
         self._templated_file_prefix = self._file_prefix.format(**doc)
-        ...
+        def start_gen():
+            yield ('start', doc)
+
+        self._documents = itertool.chain(self._documents, start_gen)
 
     def descriptor(self, doc):
-        ...
+        def descriptor_gen():
+            yield ('descriptor', doc)
+
+        self._documents = itertool.chain(self._documents, descriptor_gen)
 
     def event_page(self, doc):
         # There are other representations of Event data -- 'event' and
         # 'bulk_events' (deprecated). But that does not concern us because
         # DocumentRouter will convert this representations to 'event_page'
         # then route them through here.
-        ...
+        def event_page_gen():
+            yield ('event_page', doc)
+
+        self._documents = itertool.chain(self._documents, event_page_gen)
 
     def stop(self, doc):
-        ...
+        def stop_gen():
+            yield ('stop', doc)
+
+        self._documents = itertool.chain(self._documents, stop_gen)
+
+        documents_to_xarrays(self._documents).to_zarr()

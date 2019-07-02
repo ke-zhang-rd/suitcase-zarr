@@ -1,0 +1,4 @@
+[run]
+branch = true
+include = suitcase/zarr/*
+omit = suitcase/zarr/_version.py

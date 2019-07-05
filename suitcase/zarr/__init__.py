@@ -147,9 +147,11 @@ class Serializer(event_model.DocumentRouter):
             # The user has given us a filepath; they want files.
             # Set up a MultiFileManager for them.
             self._manager = suitcase.utils.MultiFileManager(directory)
+            self._path_to_file = directory
         else:
             # The user has given us their own Manager instance. Use that.
             self._manager = directory
+            self._path_to_file = None
 
         # Finally, we usually need some state related to stashing file
         # handles/buffers. For a Serializer that only needs *one* file
@@ -178,6 +180,11 @@ class Serializer(event_model.DocumentRouter):
         """
         Close all of the resources (e.g. files) allocated.
         """
+        if self._path_to_file is None:
+            target = self._manager
+        else:
+            target = self._path_to_file + f'{self._templated_file_prefix}-primary.zarr'
+        documents_to_xarrays(self._documents).to_zarr(target)
         self._manager.close()
 
     # These methods enable the Serializer to be used as a context manager:
@@ -251,5 +258,3 @@ class Serializer(event_model.DocumentRouter):
             yield ('stop', doc)
 
         self._documents = itertool.chain(self._documents, stop_gen)
-
-        documents_to_xarrays(self._documents).to_zarr()
